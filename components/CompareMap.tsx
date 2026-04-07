@@ -12,7 +12,13 @@ interface MapPoint {
   color: string;
 }
 
-export function CompareMap({ points }: { points: MapPoint[] }) {
+export function CompareMap({
+  points,
+  activePointId,
+}: {
+  points: MapPoint[];
+  activePointId?: string | null;
+}) {
   const mapDivRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const layerRef = useRef<L.LayerGroup | null>(null);
@@ -54,13 +60,14 @@ export function CompareMap({ points }: { points: MapPoint[] }) {
     }
 
     const latLngs: L.LatLngExpression[] = points.map((point) => {
+      const dimmed = Boolean(activePointId && activePointId !== point.id);
       const latLng: L.LatLngExpression = [point.lat, point.lng];
       L.circleMarker(latLng, {
-        radius: 8,
+        radius: dimmed ? 6 : 8,
         color: "#ffffff",
         weight: 2,
-        fillColor: point.color,
-        fillOpacity: 0.95,
+        fillColor: dimmed ? "#9ca3af" : point.color,
+        fillOpacity: dimmed ? 0.85 : 0.98,
       })
         .bindTooltip(point.label)
         .addTo(layerRef.current!);
@@ -74,7 +81,7 @@ export function CompareMap({ points }: { points: MapPoint[] }) {
         padding: [24, 24],
       });
     }
-  }, [points]);
+  }, [points, activePointId]);
 
   return (
     <div className="relative h-[260px] overflow-hidden rounded-xl border bg-white">

@@ -74,8 +74,10 @@ function CircleImportance({
             key={level}
             type="button"
             onClick={() => onSelect(level)}
-            className={`h-3.5 w-3.5 rounded-full border transition ${
-              active ? "border-slate-500 bg-slate-300" : "border-slate-400 bg-white"
+            className={`h-3.5 w-3.5 rounded-full border transition duration-150 hover:scale-110 hover:shadow ${
+              active
+                ? "border-slate-900 bg-slate-700"
+                : "border-slate-300 bg-slate-100 hover:bg-slate-200"
             }`}
             aria-label={`Set importance to ${level}`}
           />
@@ -108,6 +110,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [briefs, setBriefs] = useState<PropertyBrief[]>([]);
+  const [hoveredCardId, setHoveredCardId] = useState<string | null>(null);
 
   const activeAddresses = useMemo(
     () => addresses.map((value) => value.trim()).filter(Boolean).slice(0, 4),
@@ -225,9 +228,21 @@ export default function Home() {
           <div className="grid grid-cols-4 gap-2">
             {propertySlots.map((slot) => {
               const brief = slot.brief;
+              const isActive = Boolean(brief && hoveredCardId === brief.id);
+              const isDimmed = Boolean(brief && hoveredCardId && hoveredCardId !== brief.id);
               return (
-                <div key={slot.slot} className="rounded-lg bg-[#d2d2d2] p-1">
-                  <div className="h-[5px] rounded-full" style={{ backgroundColor: slot.color }} />
+                <div
+                  key={slot.slot}
+                  className={`rounded-lg bg-[#d2d2d2] p-1 transition duration-200 ${
+                    isActive ? "z-10 -translate-y-1 shadow-xl ring-1 ring-black/10" : "shadow-sm"
+                  }`}
+                  onMouseEnter={() => setHoveredCardId(brief?.id ?? null)}
+                  onMouseLeave={() => setHoveredCardId(null)}
+                >
+                  <div
+                    className="h-[5px] rounded-full transition"
+                    style={{ backgroundColor: isDimmed ? "#a3a3a3" : slot.color }}
+                  />
                   {brief ? (
                     <div className="mt-1 rounded-md bg-[#eeeeee] p-2">
                       <img
@@ -297,7 +312,7 @@ export default function Home() {
           </div>
 
           <div className="rounded-lg bg-[#d3d3d3] p-1">
-            <DynamicCompareMap points={mapPoints} />
+            <DynamicCompareMap points={mapPoints} activePointId={hoveredCardId} />
           </div>
         </section>
 
@@ -315,7 +330,10 @@ export default function Home() {
                           className="h-2 rounded-full"
                           style={{
                             width: `${Math.max(8, value)}%`,
-                            backgroundColor: slot.color,
+                            backgroundColor:
+                              hoveredCardId && slot.brief && hoveredCardId !== slot.brief.id
+                                ? "#9ca3af"
+                                : slot.color,
                             opacity: idx === 0 ? 1 : 0.95,
                           }}
                         />
