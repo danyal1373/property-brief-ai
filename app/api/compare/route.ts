@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { DEFAULT_WEIGHTS } from "@/lib/defaults";
+import { geocodeAddress } from "@/lib/geocode";
 import { getHybridSources } from "@/lib/providers/hybrid";
 import { reconcileProperty } from "@/lib/reconciliation";
 import { scoreProperty } from "@/lib/scoring";
@@ -18,6 +19,17 @@ const payloadSchema = z.object({
     weights: z.record(z.string(), z.number().min(0).max(100)).optional(),
   }),
 });
+
+const categoryTitle: Record<DecisionCategory, string> = {
+  priceValue: "Price",
+  neighborhoodQuality: "Neighborhood",
+  schools: "Schools",
+  commuteTransit: "Commute",
+  groceriesAccess: "Groceries",
+  propertyConditionRisk: "Condition",
+  climateRisk: "Climate",
+  investmentPotential: "Investment",
+};
 
 function normalizeWeights(input: Record<string, number> | undefined) {
   const base = { ...DEFAULT_WEIGHTS };
@@ -52,6 +64,22 @@ function computeOverallScore(
   return Math.round(weighted);
 }
 
+function getHighlightedFeatures(
+  categoryScores: Record<DecisionCategory, number>,
+  weights: Record<DecisionCategory, number>,
+): Array<{ tag: string; score: number }> {
+  return [...DECISION_CATEGORIES]
+    .sort(
+      (a, b) =>
+        categoryScores[b] * weights[b] - categoryScores[a] * weights[a],
+    )
+    .slice(0, 8)
+    .map((category) => ({
+      tag: categoryTitle[category],
+      score: Math.round(categoryScores[category]),
+    }));
+}
+
 export async function POST(req: Request) {
   const parse = payloadSchema.safeParse(await req.json());
   if (!parse.success) {
@@ -67,24 +95,29 @@ export async function POST(req: Request) {
     weights,
   };
 
-  const briefs: PropertyBrief[] = [];
+  const briefs: PropertyBrief[] = await Promise.all(
+    parse.data.addresses.map(async (address) => {
+      const [sources, location] = await Promise.all([
+        getHybridSources(address),
+        geocodeAddress(address),
+      ]);
+      const metrics = reconcileProperty(sources);
+      const scored = await scoreProperty(metrics, preferences);
 
-  for (const address of parse.data.addresses) {
-    const sources = await getHybridSources(address);
-    const metrics = reconcileProperty(sources);
-    const scored = await scoreProperty(metrics, preferences);
+      return {
+        id: address.toLowerCase().replace(/[^a-z0-9]/g, "-"),
+        address,
+        imageUrl: `https://picsum.photos/seed/${encodeURIComponent(address)}/400/220`,
+        highlightedFeatures: getHighlightedFeatures(scored.categoryScores, weights),
+        location,
+        metrics,
+        categoryScores: scored.categoryScores,
+        categoryExplanations: scored.categoryExplanations,
+        overallScore: computeOverallScore(scored.categoryScores, weights),
+        summary: scored.summary,
+      };
+    }),
+  );
 
-    briefs.push({
-      id: address.toLowerCase().replace(/[^a-z0-9]/g, "-"),
-      address,
-      metrics,
-      categoryScores: scored.categoryScores,
-      categoryExplanations: scored.categoryExplanations,
-      overallScore: computeOverallScore(scored.categoryScores, weights),
-      summary: scored.summary,
-    });
-  }
-
-  briefs.sort((a, b) => b.overallScore - a.overallScore);
   return NextResponse.json({ briefs, weights });
 }

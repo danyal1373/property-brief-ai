@@ -1,48 +1,117 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { FormEvent, useMemo, useState } from "react";
-import { DEFAULT_WEIGHTS } from "@/lib/defaults";
 import { DECISION_CATEGORIES, DecisionCategory, PropertyBrief } from "@/lib/types";
 
 type CompareResponse = {
   briefs: PropertyBrief[];
 };
 
+const DynamicCompareMap = dynamic(
+  () => import("@/components/CompareMap").then((mod) => mod.CompareMap),
+  { ssr: false },
+);
+
 const categoryLabels: Record<DecisionCategory, string> = {
-  priceValue: "Price Value",
-  neighborhoodQuality: "Neighborhood Quality",
+  priceValue: "Price",
+  neighborhoodQuality: "Neighborhood",
   schools: "Schools",
-  commuteTransit: "Commute & Transit",
-  groceriesAccess: "Groceries Access",
-  propertyConditionRisk: "Property Condition Risk",
-  climateRisk: "Climate Risk",
-  investmentPotential: "Investment Potential",
+  commuteTransit: "Commute",
+  groceriesAccess: "Groceries",
+  propertyConditionRisk: "Condition",
+  climateRisk: "Climate",
+  investmentPotential: "Investment",
 };
 
-function metricCell(value: number | null) {
-  return typeof value === "number" ? value.toLocaleString() : "N/A";
+const ENTITY_COLORS = ["#f18187", "#67c2d8", "#8f80f7", "#f2b24d"];
+
+const CRITERIA_BLOCKS: DecisionCategory[] = [
+  "priceValue",
+  "neighborhoodQuality",
+  "schools",
+  "commuteTransit",
+  "groceriesAccess",
+  "propertyConditionRisk",
+  "climateRisk",
+  "investmentPotential",
+];
+
+function toCompact(value: number | null, prefix = "", suffix = ""): string {
+  if (typeof value !== "number") {
+    return "N/A";
+  }
+  return `${prefix}${Math.round(value).toLocaleString()}${suffix}`;
+}
+
+function formatPrice(value: number | null): string {
+  if (typeof value !== "number") {
+    return "N/A";
+  }
+  if (value >= 1000000) {
+    return `$${(value / 1000000).toFixed(2)}M`;
+  }
+  if (value >= 1000) {
+    return `$${(value / 1000).toFixed(0)}K`;
+  }
+  return `$${Math.round(value)}`;
+}
+
+function CircleImportance({
+  value,
+  onSelect,
+}: {
+  value: number;
+  onSelect: (next: number) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      {Array.from({ length: 5 }).map((_, idx) => {
+        const level = idx + 1;
+        const active = level <= value;
+        return (
+          <button
+            key={level}
+            type="button"
+            onClick={() => onSelect(level)}
+            className={`h-3.5 w-3.5 rounded-full border transition ${
+              active ? "border-slate-500 bg-slate-300" : "border-slate-400 bg-white"
+            }`}
+            aria-label={`Set importance to ${level}`}
+          />
+        );
+      })}
+    </div>
+  );
 }
 
 export default function Home() {
-  const [addressesText, setAddressesText] = useState(
-    "123 Market St San Francisco\n450 Elm Ave Seattle",
-  );
+  const [addresses, setAddresses] = useState([
+    "123 Market St San Francisco",
+    "450 Elm Ave Seattle",
+    "88 Broadway New York",
+    "17 Lakeshore Dr Austin",
+  ]);
   const [expressedNeeds, setExpressedNeeds] = useState(
-    "I value groceries access, school quality, and lower climate risk.",
+    "Prioritize groceries access, good schools, and lower climate risk.",
   );
-  const [weights, setWeights] = useState(DEFAULT_WEIGHTS);
+  const [weights, setWeights] = useState<Record<DecisionCategory, number>>({
+    priceValue: 4,
+    neighborhoodQuality: 3,
+    schools: 4,
+    commuteTransit: 3,
+    groceriesAccess: 5,
+    propertyConditionRisk: 3,
+    climateRisk: 4,
+    investmentPotential: 3,
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [briefs, setBriefs] = useState<PropertyBrief[]>([]);
 
-  const addresses = useMemo(
-    () =>
-      addressesText
-        .split("\n")
-        .map((value) => value.trim())
-        .filter(Boolean)
-        .slice(0, 5),
-    [addressesText],
+  const activeAddresses = useMemo(
+    () => addresses.map((value) => value.trim()).filter(Boolean).slice(0, 4),
+    [addresses],
   );
 
   async function handleCompare(event: FormEvent<HTMLFormElement>) {
@@ -55,7 +124,7 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          addresses,
+          addresses: activeAddresses,
           preferences: {
             expressedNeeds,
             weights,
@@ -76,149 +145,189 @@ export default function Home() {
     }
   }
 
+  const propertySlots = useMemo(
+    () =>
+      Array.from({ length: 4 }).map((_, idx) => ({
+        brief: briefs[idx] ?? null,
+        color: ENTITY_COLORS[idx],
+        slot: idx,
+      })),
+    [briefs],
+  );
+
+  const mapPoints = useMemo(
+    () =>
+      propertySlots
+        .filter((slot) => slot.brief?.location)
+        .map((slot) => ({
+          id: slot.brief!.id,
+          label: slot.brief!.address,
+          lat: slot.brief!.location!.lat,
+          lng: slot.brief!.location!.lng,
+          color: slot.color,
+        })),
+    [propertySlots],
+  );
+
   return (
-    <main className="mx-auto min-h-screen max-w-7xl p-6 md:p-10">
-      <header className="mb-8">
-        <h1 className="text-3xl font-bold text-slate-900">Property Compare Brief</h1>
-        <p className="mt-2 text-slate-600">
-          Compare homes with reconciled multi-source data and AI-assisted scoring.
-        </p>
-      </header>
-
-      <form onSubmit={handleCompare} className="grid gap-6 rounded-xl border p-5">
-        <div className="grid gap-2">
-          <label className="font-medium text-slate-800">
-            Addresses (one per line, 2 to 5 homes)
-          </label>
-          <textarea
-            value={addressesText}
-            onChange={(event) => setAddressesText(event.target.value)}
-            className="h-28 rounded-md border p-3"
-          />
-        </div>
-
-        <div className="grid gap-2">
-          <label className="font-medium text-slate-800">Expressed buyer needs</label>
-          <textarea
-            value={expressedNeeds}
-            onChange={(event) => setExpressedNeeds(event.target.value)}
-            className="h-24 rounded-md border p-3"
-          />
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-2">
-          {DECISION_CATEGORIES.map((category) => (
-            <label key={category} className="rounded-md border p-3">
-              <div className="mb-2 flex items-center justify-between text-sm">
-                <span className="font-medium text-slate-700">{categoryLabels[category]}</span>
-                <span className="text-slate-500">{weights[category]}</span>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={40}
-                value={weights[category]}
-                onChange={(event) =>
-                  setWeights((prev) => ({
-                    ...prev,
-                    [category]: Number(event.target.value),
-                  }))
-                }
-                className="w-full"
-              />
-            </label>
-          ))}
-        </div>
-
-        <button
-          type="submit"
-          disabled={loading || addresses.length < 2}
-          className="w-full rounded-md bg-slate-900 px-4 py-3 font-medium text-white disabled:opacity-60"
-        >
-          {loading ? "Scoring homes..." : "Compare Homes"}
-        </button>
-        {error ? <p className="text-sm text-red-600">{error}</p> : null}
-      </form>
-
-      {briefs.length > 0 ? (
-        <section className="mt-8 overflow-x-auto">
-          <table className="w-full min-w-[1000px] border-collapse text-sm">
-            <thead>
-              <tr>
-                <th className="border p-2 text-left">Metric</th>
-                {briefs.map((brief) => (
-                  <th key={brief.id} className="border p-2 text-left">
-                    <div className="font-semibold">{brief.address}</div>
-                    <div className="text-xs text-slate-500">Overall: {brief.overallScore}</div>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {DECISION_CATEGORIES.map((category) => (
-                <tr key={category}>
-                  <td className="border p-2 font-medium">{categoryLabels[category]} Score</td>
-                  {briefs.map((brief) => (
-                    <td key={`${brief.id}-${category}`} className="border p-2">
-                      {brief.categoryScores[category]}
-                      <p className="mt-1 text-xs text-slate-500">
-                        {brief.categoryExplanations[category]}
-                      </p>
-                    </td>
-                  ))}
-                </tr>
+    <main className="mx-auto min-h-screen max-w-[1300px] bg-[#ececec] p-4 text-slate-900">
+      <form onSubmit={handleCompare} className="grid gap-4 lg:grid-cols-[4fr_1.2fr]">
+        <section className="space-y-2">
+          <div className="rounded-lg bg-[#cfcfcf] p-3">
+            <div className="mb-2 text-base">What&apos;s important to you:</div>
+            <div className="grid grid-cols-4 gap-2">
+              {CRITERIA_BLOCKS.map((category) => (
+                <div key={category} className="h-[56px] rounded-lg bg-[#8d8789] p-2 text-white">
+                  <div className="mb-1 text-sm">{categoryLabels[category]}</div>
+                  <CircleImportance
+                    value={weights[category]}
+                    onSelect={(next) => setWeights((prev) => ({ ...prev, [category]: next }))}
+                  />
+                </div>
               ))}
-              <tr>
-                <td className="border p-2 font-medium">Price</td>
-                {briefs.map((brief) => (
-                  <td key={`${brief.id}-price`} className="border p-2">
-                    ${metricCell(brief.metrics.price.value)}
-                  </td>
-                ))}
-              </tr>
-              <tr>
-                <td className="border p-2 font-medium">Square Feet</td>
-                {briefs.map((brief) => (
-                  <td key={`${brief.id}-sqft`} className="border p-2">
-                    {metricCell(brief.metrics.sqft.value)}
-                  </td>
-                ))}
-              </tr>
-              <tr>
-                <td className="border p-2 font-medium">Schools / Walk / Groceries</td>
-                {briefs.map((brief) => (
-                  <td key={`${brief.id}-loc`} className="border p-2">
-                    {metricCell(brief.metrics.schoolRating.value)} /{" "}
-                    {metricCell(brief.metrics.walkScore.value)} /{" "}
-                    {metricCell(brief.metrics.groceriesAccess.value)}
-                  </td>
-                ))}
-              </tr>
-              <tr>
-                <td className="border p-2 font-medium">Conflicts Flagged</td>
-                {briefs.map((brief) => {
-                  const conflictCount = Object.values(brief.metrics).filter(
-                    (metric) => metric.conflict,
-                  ).length;
-                  return (
-                    <td key={`${brief.id}-conflicts`} className="border p-2">
-                      {conflictCount}
-                    </td>
-                  );
-                })}
-              </tr>
-              <tr>
-                <td className="border p-2 font-medium">Brief Summary</td>
-                {briefs.map((brief) => (
-                  <td key={`${brief.id}-summary`} className="border p-2 text-xs text-slate-600">
-                    {brief.summary}
-                  </td>
-                ))}
-              </tr>
-            </tbody>
-          </table>
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-[#d3d3d3] p-2">
+            <div className="grid grid-cols-4 gap-2">
+              {Array.from({ length: 4 }).map((_, idx) => (
+                <input
+                  key={idx}
+                  value={addresses[idx] ?? ""}
+                  onChange={(event) =>
+                    setAddresses((prev) =>
+                      prev.map((item, itemIdx) => (itemIdx === idx ? event.target.value : item)),
+                    )
+                  }
+                  className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs"
+                  placeholder={`Address ${idx + 1}`}
+                />
+              ))}
+            </div>
+            <div className="mt-2 grid grid-cols-[1fr_auto] gap-2">
+              <input
+                value={expressedNeeds}
+                onChange={(event) => setExpressedNeeds(event.target.value)}
+                className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs"
+                placeholder="Buyer needs"
+              />
+              <button
+                type="submit"
+                disabled={loading || activeAddresses.length < 2}
+                className="rounded-md bg-slate-900 px-3 py-1 text-xs font-semibold text-white disabled:opacity-50"
+              >
+                {loading ? "Scoring" : "Compare"}
+              </button>
+            </div>
+            {error ? <div className="mt-1 text-xs text-red-600">{error}</div> : null}
+          </div>
+
+          <div className="grid grid-cols-4 gap-2">
+            {propertySlots.map((slot) => {
+              const brief = slot.brief;
+              return (
+                <div key={slot.slot} className="rounded-lg bg-[#d2d2d2] p-1">
+                  <div className="h-[5px] rounded-full" style={{ backgroundColor: slot.color }} />
+                  {brief ? (
+                    <div className="mt-1 rounded-md bg-[#eeeeee] p-2">
+                      <img
+                        src={brief.imageUrl}
+                        alt={brief.address}
+                        className="mb-2 h-16 w-full rounded-md object-cover"
+                      />
+                      <div className="flex items-start justify-between">
+                        <div className="max-w-[72%] text-[13px]">{brief.address}</div>
+                      </div>
+                      <div className="mt-2 grid grid-cols-2 items-start">
+                        <div>
+                          <div className="text-[30px] leading-none">
+                            {formatPrice(brief.metrics.price.value)}
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-[30px] leading-none">
+                            {toCompact(brief.metrics.sqft.value)}
+                          </div>
+                          <div className="text-[11px]">sq. ft</div>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 grid grid-cols-3 text-center">
+                        <div>
+                          <div className="text-2xl leading-none">{toCompact(brief.metrics.beds.value)}</div>
+                          <div className="text-xs">Beds</div>
+                        </div>
+                        <div>
+                          <div className="text-2xl leading-none">{toCompact(brief.metrics.baths.value)}</div>
+                          <div className="text-xs">Baths</div>
+                        </div>
+                        <div>
+                          <div className="text-2xl leading-none">
+                            {toCompact(brief.metrics.schoolRating.value)}
+                          </div>
+                          <div className="text-xs">Schools</div>
+                        </div>
+                      </div>
+
+                      <div className="mt-2 grid grid-cols-2 gap-1">
+                        {brief.highlightedFeatures.map((feature) => (
+                          <div
+                            key={`${brief.id}-${feature.tag}`}
+                            className="rounded-full bg-white px-2 py-1 text-[10px] text-slate-700"
+                          >
+                            <div className="flex items-center justify-between">
+                              <span>{feature.tag}</span>
+                              <span>{feature.score}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="mt-3 rounded-md bg-[#79cce0] px-2 py-2 text-center">
+                        <div className="text-4xl leading-none">{brief.overallScore}</div>
+                        <div className="text-sm leading-4">Match Score</div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-1 h-[280px] rounded-md bg-[#eeeeee]" />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="rounded-lg bg-[#d3d3d3] p-1">
+            <DynamicCompareMap points={mapPoints} />
+          </div>
         </section>
-      ) : null}
+
+        <aside className="rounded-lg bg-[#8d8789] p-2">
+          <div className="space-y-2">
+            {CRITERIA_BLOCKS.map((category, idx) => (
+              <div key={category} className="rounded-lg bg-[#efefef] p-2">
+                <div className="mb-1 text-xs">{categoryLabels[category]}</div>
+                <div className="space-y-1">
+                  {propertySlots.map((slot) => {
+                    const value = slot.brief?.categoryScores[category] ?? 0;
+                    return (
+                      <div key={`${category}-${slot.slot}`} className="h-2 rounded-full bg-[#b9b9b9]">
+                        <div
+                          className="h-2 rounded-full"
+                          style={{
+                            width: `${Math.max(8, value)}%`,
+                            backgroundColor: slot.color,
+                            opacity: idx === 0 ? 1 : 0.95,
+                          }}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </aside>
+      </form>
     </main>
   );
 }

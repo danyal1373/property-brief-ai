@@ -56,6 +56,15 @@ export interface RawPropertySource {
 export interface PropertyBrief {
   id: string;
   address: string;
+  imageUrl: string;
+  highlightedFeatures: Array<{
+    tag: string;
+    score: number;
+  }>;
+  location: {
+    lat: number;
+    lng: number;
+  } | null;
   metrics: PropertyMetrics;
   overallScore: number;
   categoryScores: Record<DecisionCategory, number>;

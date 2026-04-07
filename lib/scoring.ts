@@ -7,6 +7,10 @@ type ScoreResult = {
   summary: string;
 };
 
+const SCORING_PROMPT = `Score this property from 0-100 per category and explain each category in one short sentence.
+Categories: priceValue, neighborhoodQuality, schools, commuteTransit, groceriesAccess, propertyConditionRisk, climateRisk, investmentPotential.
+Return strict JSON only with keys: categoryScores, categoryExplanations, summary.`;
+
 function clamp(value: number, min = 0, max = 100): number {
   return Math.max(min, Math.min(max, Math.round(value)));
 }
@@ -59,7 +63,7 @@ function heuristicScores(metrics: PropertyMetrics): ScoreResult {
   };
 }
 
-function parseClaudeJson(raw: string): ScoreResult | null {
+function parseScoreJson(raw: string): ScoreResult | null {
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
   if (start < 0 || end < 0 || end <= start) {
@@ -94,8 +98,7 @@ async function claudeScores(
     messages: [
       {
         role: "user",
-        content: `Score this property from 0-100 per category and explain each category in one short sentence.
-Categories: priceValue, neighborhoodQuality, schools, commuteTransit, groceriesAccess, propertyConditionRisk, climateRisk, investmentPotential.
+        content: `${SCORING_PROMPT}
 Use this buyer needs text: "${preferences.expressedNeeds}".
 Use weights as a priority hint: ${JSON.stringify(preferences.weights)}.
 Property metrics: ${JSON.stringify(metrics)}.
@@ -109,16 +112,82 @@ Return JSON only.`,
     .map((part) => part.text)
     .join("\n");
 
-  return parseClaudeJson(text);
+  return parseScoreJson(text);
+}
+
+async function googleScores(
+  metrics: PropertyMetrics,
+  preferences: BuyerPreferences,
+): Promise<ScoreResult | null> {
+  const apiKey = process.env.GOOGLE_API_KEY;
+  if (!apiKey) {
+    return null;
+  }
+
+  const model = process.env.GOOGLE_MODEL || "gemini-1.5-flash";
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        generationConfig: {
+          temperature: 0.2,
+          responseMimeType: "application/json",
+        },
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                text: `${SCORING_PROMPT}
+Use this buyer needs text: "${preferences.expressedNeeds}".
+Use weights as a priority hint: ${JSON.stringify(preferences.weights)}.
+Property metrics: ${JSON.stringify(metrics)}.`,
+              },
+            ],
+          },
+        ],
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const json = (await response.json()) as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+  };
+  const text = json.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  return parseScoreJson(text);
 }
 
 export async function scoreProperty(
   metrics: PropertyMetrics,
   preferences: BuyerPreferences,
 ): Promise<ScoreResult> {
-  const claude = await claudeScores(metrics, preferences);
+  let claude: ScoreResult | null = null;
+  try {
+    claude = await claudeScores(metrics, preferences);
+  } catch {
+    claude = null;
+  }
+
   if (claude) {
     return claude;
   }
+
+  let google: ScoreResult | null = null;
+  try {
+    google = await googleScores(metrics, preferences);
+  } catch {
+    google = null;
+  }
+
+  if (google) {
+    return google;
+  }
+
   return heuristicScores(metrics);
 }
