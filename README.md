@@ -45,23 +45,23 @@ This implementation focuses on the assignment's "scattered + inconsistent + inco
 
 ```mermaid
 flowchart TD
-  A[User input\naddresses + expressed needs + category weights] --> B[POST /api/compare]
-  B --> C[Hybrid source fetch\nmock records + optional provider adapters]
-  B --> D[Geocode address\ndeterministic demo coords -> Nominatim fallback]
-  C --> E[Reconcile metrics\nblend values, detect conflicts, confidence score]
-  E --> F[Score categories]
-  F --> F1[Claude scorer\nif ANTHROPIC_API_KEY]
-  F --> F2[Google scorer\nif GOOGLE_API_KEY]
-  F --> F3[Heuristic scorer\nfallback]
-  F1 --> G[categoryScores + explanations]
+  A["User input<br/>addresses + expressed needs + category weights"] --> B["POST /api/compare"]
+  B --> C["Hybrid source fetch<br/>mock records + optional provider adapters"]
+  B --> D["Geocode address<br/>deterministic demo coords then Nominatim fallback"]
+  C --> E["Reconcile metrics<br/>blend values, detect conflicts, confidence score"]
+  E --> F["Score categories"]
+  F --> F1["Claude scorer<br/>if ANTHROPIC_API_KEY"]
+  F --> F2["Google scorer<br/>if GOOGLE_API_KEY"]
+  F --> F3["Heuristic scorer<br/>fallback"]
+  F1 --> G["categoryScores + explanations"]
   F2 --> G
   F3 --> G
-  G --> H[Overall weighted score]
-  H --> I[Highlighted features\n(top weighted categories)]
-  D --> J[location lat/lng]
-  I --> K[PropertyBrief payload]
+  G --> H["Overall weighted score"]
+  H --> I["Highlighted features<br/>top weighted categories"]
+  D --> J["location lat/lng"]
+  I --> K["PropertyBrief payload"]
   J --> K
-  K --> L[UI render\ncards + side compare lanes + map markers]
+  K --> L["UI render<br/>cards + side compare lanes + map markers"]
 ```
 
 ## Scoring Logic (High-Level)
